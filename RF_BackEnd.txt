@@ -1,0 +1,9 @@
+Requisitos funcionales (RN)
+  1.Permitir subir el archivo correspondiente para la carga de los datos para que el sistema los interpetre
+  2.Responder de eficazmente ante todas las solicitudes del usuario asegurando calidad de los datos
+  3.Filtrar la informacion por tipo de datos a peticion del usuario
+
+Requisitos no funcionales (RNF)
+  1.Cuando los archivos sean cargados el sistema debe hacer una ETL para obtener los datos limpios y sin errores
+  2.Realizar una backup cada determinado tiempo para mantener la integridad de los datos
+  3.Garantizar que el sistema sea usable en todo momento
