@@ -21,6 +21,7 @@
     ### 21 al 24 de abril : Se propone como entregable requerimientos con la arquitectura
   
     ### 25 al 30  de abril : Ajustar el funcionamiento de la carga de archivos y la lectura de cada uno
+                             Realizar el login funcional y que sea interactivo
   
     ### 2 al 8 de mayo : Realizar la documentacion completa y realizar la logica del calculo de las variables
   
