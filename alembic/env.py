@@ -18,7 +18,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from app.db.base import Base
+from app.models import Base
 from app.core.config import settings
 
 # add your model's MetaData object here
