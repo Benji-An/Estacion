@@ -1,108 +1,111 @@
 =====================================================
-    DOCUMENTACIÓN DEL BACKEND (FastAPI)
+DOCUMENTACIÓN COMPLETA DEL BACKEND (FastAPI)
 =====================================================
 
-1. ¿CÓMO PONER A FUNCIONAR EL PROYECTO?
+1. ARQUITECTURA Y FLUJO DE COMUNICACIÓN
 -----------------------------------------------------
-Paso 1: Activar el entorno virtual
-En Windows: `.\.venv\Scripts\activate`
+El backend sigue un patrón de arquitectura limpia dividida en capas. Aquí te explicamos cómo se comunica cada archivo:
 
-Paso 2: Instalar dependencias (solo si es la primera vez o añadiste algo nuevo)
-`pip install -r requirements.txt`
+1. app/main.py (Punto de entrada): 
+   Levanta la aplicación, configura CORS para que el frontend pueda conectarse y agrupa todos los enrutadores (endpoints).
+   
+2. app/api/v1/endpoints/ (Controladores):
+   Son las "puertas" del backend. Reciben los requests (peticiones) del frontend, validan rápidamente los parámetros de entrada y deciden a qué servicio o función CRUD llamar. No deben contener lógica matemática pesada.
+   
+3. app/schemas/ (Esquemas Pydantic):
+   Sirven como validadores de información entre el frontend y el backend. Definen con exactitud qué campos debe enviar el cliente (ej. un email y un password) y qué se le responderá.
 
-Paso 3: Levantar el servidor
-`uvicorn app.main:app --reload`
-*Nota: El servidor estará disponible en http://localhost:8000*
-*La documentación automática de la API (Swagger) está en http://localhost:8000/docs*
+4. app/services/ (Lógica de Negocio):
+   Aquí vive la inteligencia de la aplicación.
+   - csv_service.py: Se encarga exclusivamente de leer los archivos CSV de las estaciones HOBO, decodificarlos, buscar en los encabezados complejos (mediante etiquetas "LBL:") y convertirlos en listas de objetos limpios en Python.
+   - hydro_service.py: Ejecuta la fórmula del Método Racional (Q = C × I × A / 360) para obtener los caudales de escorrentía, y expone la tabla de coeficientes del IDEAM.
+   - idf_service.py: Contiene toda la estadística pesada. Lee series de tiempo, calcula la intensidad de la lluvia por ventanas (5 a 120 min) y genera las Curvas de Intensidad-Duración-Frecuencia (IDF) aplicando la distribución de Gumbel para distintos periodos de retorno.
 
-Paso 4 (Opcional): Aplicar migraciones a la Base de Datos
-Si se han modificado los modelos:
-`alembic revision --autogenerate -m "mensaje"`
-`alembic upgrade head`
+5. app/crud/ (Acceso a Datos):
+   Son los intermediarios entre los Servicios/Endpoints y la Base de Datos PostgreSQL.
+   - archivo.py: Guarda registros cuando se sube un nuevo CSV.
+   - medicion.py: Inserta de a miles (bulk insert) los datos leídos por csv_service. También calcula resúmenes estadísticos (agregaciones de SQL como AVG, SUM, MAX) y saca series temporales para las gráficas.
+
+6. app/models/ (Modelos SQLAlchemy):
+   Representan las tablas de la base de datos (Usuario, ArchivoCSV, MedicionEstacion).
+
+FLUJO DE EJEMPLO (Subir un CSV y ver curvas IDF):
+Frontend envía CSV -> `datos.py/upload` -> llama a `csv_service.py/parse_estacion_hobo` -> llama a `crud/medicion.py/create_bulk` -> El archivo queda guardado en PostgreSQL.
+Luego Frontend pide las curvas -> `calculo.py/idf` -> lee datos de `crud/medicion.py` -> los envía a `idf_service.py/calcular_curvas_idf` -> Retorna un JSON listo para que Recharts o Chart.js lo grafiquen.
 
 
-2. VARIABLES DE ENTORNO Y CONFIGURACIÓN
+2. LISTA DE ENDPOINTS DISPONIBLES (PARA CONSUMIR EN FRONTEND)
 -----------------------------------------------------
-* ¿Dónde se definen las variables? 
-  En el archivo `.env` en la raíz del proyecto (Ej: DATABASE_URL, SECRET_KEY).
-* ¿Cómo las lee Python?
-  En el archivo `app/core/config.py`. Allí se usa Pydantic para leer el `.env` y cargar las variables en un objeto llamado `settings`.
-* ¿Cómo se usan en el resto del código?
-  Simplemente importas `settings` donde lo necesites.
-  Ejemplo: `from app.core.config import settings`
-  Y luego usas: `settings.DATABASE_URL`
+Todas las rutas tienen el prefijo base: /api/v1
+
+AUTENTICACIÓN
+[POST] /login/access-token
+- Descripción: Endpoint para iniciar sesión.
+- Body (Form Data): `username` (email del usuario) y `password`.
+- Retorno: `{"access_token": "eyJhbG...", "token_type": "bearer"}`
+
+[POST] /register
+- Descripción: Crear un nuevo usuario en la base de datos.
+- Body (JSON): `{"email": "correo@ejemplo.com", "password": "mipassword", "full_name": "Nombre"}`
+- Retorno: Información del usuario creado (sin contraseña).
 
 
-3. ESTRUCTURA DEL PROYECTO (¿DÓNDE ESTÁ CADA COSA?)
------------------------------------------------------
-El código principal vive en la carpeta `app/`.
+GESTIÓN DE DATOS Y ESTACIÓN HOBO
+[POST] /datos/upload
+- Descripción: Subir y procesar un archivo CSV.
+- Autenticación: Requiere Header -> `Authorization: Bearer <token>`
+- Body: `multipart/form-data` con un campo llamado `file`.
+- Retorno: Metadata del archivo procesado (id, nombre, total_registros).
 
-* app/main.py: 
-  Es el punto de entrada. Aquí se inicializa FastAPI y se conectan todos los endpoints.
+[GET] /datos/archivos
+- Descripción: Listado paginado de los archivos CSV ya subidos.
+- Parámetros URL (Opcionales): `?skip=0&limit=20`
+- Retorno: Lista de archivos. Público.
 
-* app/api/ (Controladores / Endpoints):
-  Aquí están las rutas a las que el frontend puede llamar.
-  - `app/api/v1/endpoints/auth.py`: Rutas `/login/access-token` y `/register`.
-  - `app/api/v1/endpoints/upload.py`: Ruta `/upload` para recibir el archivo CSV.
+[GET] /datos/mediciones
+- Descripción: Obtener datos en bruto de un CSV específico.
+- Parámetros URL (Obligatorio): `?archivo_id=1`
+- Parámetros URL (Opcionales): `?skip=0&limit=100`
+- Retorno: Lista de mediciones paginadas. Público.
 
-* app/models/ (Base de Datos):
-  Aquí defines cómo son tus tablas en PostgreSQL.
-  - `user.py`: Define la clase `User` (email, contraseña cifrada, id).
+[GET] /datos/resumen
+- Descripción: Devuelve métricas generales de un CSV (lluvia total, temp media, etc).
+- Parámetros URL (Obligatorio): `?archivo_id=1`
+- Retorno: Objeto JSON con KPIs. Público.
 
-* app/schemas/ (Validadores Pydantic):
-  Definen cómo deben ser los datos que entran (Requests) y salen (Responses) de la API.
-  - `user.py`: Define qué campos se piden para crear un usuario y cuáles se devuelven.
-  - `token.py`: Define la estructura del token de acceso devuelto.
-
-* app/crud/ (Operaciones de Base de Datos):
-  CRUD = Create, Read, Update, Delete. 
-  Aquí están las funciones que hablan directamente con SQLAlchemy para buscar, guardar o borrar datos.
-  - `user.py`: Tiene funciones como `get_by_email` o `create` para guardar un usuario en la BD.
-
-* app/services/ (Lógica de Negocio):
-  Aquí va el código que hace cálculos o procesamientos pesados, para no saturar los endpoints.
-  - `csv_service.py`: Contiene la lógica para procesar archivos.
-
-* app/core/ y app/db/:
-  Configuraciones centrales, seguridad (cifrar contraseñas, generar tokens JWT) y la conexión a la base de datos (`session.py`).
+[GET] /datos/series
+- Descripción: Endpoint diseñado para gráficas en el frontend.
+- Parámetros URL (Obligatorio): `?archivo_id=1`
+- Parámetros URL (Opcional): `?campo=lluvia_mm` (Opciones: contenido_agua, rad_solar, temp_c, humedad_pct, vel_viento, vel_rafagas, dir_viento, lluvia_mm).
+- Retorno: Arreglo de puntos `[{ "timestamp": "...", "valor": 12.5 }, ...]`. Público.
 
 
-4. ¿QUÉ HACEN LAS FUNCIONES PRINCIPALES?
------------------------------------------------------
-A) El Flujo de Registro (app/api/v1/endpoints/auth.py -> register_user):
-  1. Recibe el email y contraseña del frontend.
-  2. Llama a `crud_user.get_by_email` para verificar si el email ya existe. Si existe, lanza un error 400.
-  3. Llama a `crud_user.create` que se encarga de cifrar (hashear) la contraseña y guardar al usuario en la BD.
+CÁLCULOS HIDROLÓGICOS (MÉTODO RACIONAL & IDF)
+[POST] /calculo/escorrentia
+- Descripción: Calcula el caudal de escorrentía (Q = C*I*A/360).
+- Body (JSON): `{"C": 0.60, "I": 50.5, "A": 10.0}`
+- Retorno: Objeto JSON con el caudal Q en m³/s y L/s. Público.
 
-B) El Flujo de Login (app/api/v1/endpoints/auth.py -> login_access_token):
-  1. Recibe username (email) y password en formato formulario.
-  2. Busca al usuario en la BD.
-  3. Usa la función `security.verify_password` para comprobar si la contraseña enviada coincide con el hash guardado.
-  4. Si todo está bien, usa `security.create_access_token` para generar un JWT y se lo envía al frontend.
+[GET] /calculo/coeficientes
+- Descripción: Lista de los coeficientes "C" de escorrentía típicos según IDEAM.
+- Retorno: Objeto con opciones (ideal para mostrar un Dropdown/Select en el UI). Público.
 
-C) El Flujo de Carga de CSV (app/api/v1/endpoints/upload.py -> upload_csv):
-  1. Recibe el archivo enviado por el frontend mediante un form (`multipart/form-data`).
-  2. Extrae el contenido del archivo de la memoria (en texto utf-8).
-  3. Llama a la función `parse_csv_rows` del archivo `app/services/csv_service.py`.
+[GET] /calculo/intensidades
+- Descripción: Calcula las intensidades máximas de lluvia para la duración de 5, 10, 15, 30, 60 y 120 minutos basándose en un archivo subido.
+- Parámetros URL (Obligatorio): `?archivo_id=1`
+- Retorno: Array con las intensidades observadas en mm/h. Público.
 
-D) Función de Servicio de CSV (app/services/csv_service.py -> parse_csv_rows):
-  1. Recibe el texto bruto del CSV.
-  2. Analiza los primeros caracteres para intentar "adivinar" si está separado por comas `,`, punto y coma `;` u otro.
-  3. Extrae las cabeceras (headers) de las columnas.
-  4. Convierte las filas del CSV en una lista de diccionarios JSON (ej: `{"Nombre": "Juan", "Edad": "30"}`).
-  5. Retorna esta lista de vuelta al endpoint, quien se encarga de enviarla al frontend.
+[GET] /calculo/idf
+- Descripción: Genera las Curvas IDF (Intensidad-Duración-Frecuencia) de un CSV aplicando distribución Gumbel para periodos de retorno de 2 a 50 años.
+- Parámetros URL (Obligatorio): `?archivo_id=1`
+- Retorno: Un objeto con la estructura óptima para el Frontend:
+  - `tabla`: Lista por duraciones, útil para armar una tabla de datos HTML.
+  - `por_periodo`: Diccionario agrupado por Años (2, 5, 10...), ideal para pasar a Chart.js o Recharts directamente en las líneas de la gráfica.
+- Público.
 
 
-Archivo	Descripción
-	app/models/archivo_csv.py	Modelo ArchivoCSV
-  app/models/medicion.py	Modelo MedicionEstacion con los 9 campos del sensor
-  app/models/__init__.py	Nuevos modelos registrados para Alembic
-	app/services/csv_service.py	Parseo HOBO con mapeo por LBL: + manejo de lluvia vacía
-	app/crud/archivo.py	CRUD para archivos_csv
-	app/crud/medicion.py	CRUD con bulk insert, resumen y series temporales
-	Migración Alembic	Bloqueada por contraseña incorrecta en .env
-
-
+comanos para crear la migracion de la base de datos
   alembic revision --autogenerate -m "crear_tablas_mediciones"
 
-  alembic upgrade head
+comandos para actualizar la base de datos
+alembic upgrade head

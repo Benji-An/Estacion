@@ -1,61 +1,16 @@
 """
 Servicio de parseo de CSV.
 
-Contiene dos funciones:
-  - parse_csv_rows(): función genérica existente (no tocar, usada por /upload).
-  - parse_estacion_hobo(): parseo especializado para el CSV de la estación HOBO
-    (S/N: 22462775). Mapea headers largos usando la etiqueta LBL: del sensor.
+Función especializada para el CSV exportado por la estación HOBO (S/N: 22462775).
+Mapea los headers largos del sensor usando la etiqueta LBL: para identificar cada columna.
 """
 import csv
 import io
 import re
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List
+from typing import Any
 
 from app.models.medicion import MedicionEstacion
-
-# ─────────────────────────────────────────────────────────────────
-# Función genérica (mantener para compatibilidad con /upload)
-# ─────────────────────────────────────────────────────────────────
-
-def parse_csv_rows(text_content: str, delimiter: str) -> List[Dict[str, Any]]:
-    """Parseo genérico de CSV. Detecta delimitador automáticamente."""
-    sample = text_content[:4096]
-    detected_delimiter = delimiter or ","
-
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=[",", ";", "\t", "|"])
-        detected_delimiter = dialect.delimiter
-    except csv.Error:
-        pass
-
-    reader = csv.reader(io.StringIO(text_content), delimiter=detected_delimiter)
-    raw_rows = [row for row in reader if any(cell.strip() for cell in row)]
-    if not raw_rows:
-        return []
-
-    header_index = 0
-    for index, row in enumerate(raw_rows[:10]):
-        if sum(1 for cell in row if cell.strip()) >= 2:
-            header_index = index
-            break
-
-    headers = [header.strip() for header in raw_rows[header_index]]
-    rows: List[Dict[str, Any]] = []
-
-    for raw_row in raw_rows[header_index + 1 :]:
-        row = {
-            header: raw_row[index].strip() if index < len(raw_row) else ""
-            for index, header in enumerate(headers)
-        }
-        rows.append(row)
-
-    return rows
-
-
-# ─────────────────────────────────────────────────────────────────
-# Parseo especializado HOBO
-# ─────────────────────────────────────────────────────────────────
 
 # Zona horaria GMT-05 (Colombia)
 TZ_COL = timezone(timedelta(hours=-5))
