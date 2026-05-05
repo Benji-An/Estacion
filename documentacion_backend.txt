@@ -91,3 +91,18 @@ D) Función de Servicio de CSV (app/services/csv_service.py -> parse_csv_rows):
   3. Extrae las cabeceras (headers) de las columnas.
   4. Convierte las filas del CSV en una lista de diccionarios JSON (ej: `{"Nombre": "Juan", "Edad": "30"}`).
   5. Retorna esta lista de vuelta al endpoint, quien se encarga de enviarla al frontend.
+
+
+Archivo	Descripción
+	app/models/archivo_csv.py	Modelo ArchivoCSV
+  app/models/medicion.py	Modelo MedicionEstacion con los 9 campos del sensor
+  app/models/__init__.py	Nuevos modelos registrados para Alembic
+	app/services/csv_service.py	Parseo HOBO con mapeo por LBL: + manejo de lluvia vacía
+	app/crud/archivo.py	CRUD para archivos_csv
+	app/crud/medicion.py	CRUD con bulk insert, resumen y series temporales
+	Migración Alembic	Bloqueada por contraseña incorrecta en .env
+
+
+  alembic revision --autogenerate -m "crear_tablas_mediciones"
+
+  alembic upgrade head
